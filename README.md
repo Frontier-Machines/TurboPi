@@ -60,6 +60,69 @@ python scripts/libero_eval_full_optimized.py --quick --denoising_steps 3  # 9.7 
 python scripts/libero_eval_full_optimized.py --quick --denoising_steps 10 # 5.8 Hz
 ```
 
+## Benchmark Reproduction (RTX 4090/5090)
+
+These commands run inside `openpi/` and use the optimized pathway and `serve_policy.py` pathway on the same machine.
+
+```bash
+# 1) Build CUDA13 benchmark image
+cd openpi
+docker build -f Dockerfile.libero_eval -t turbo_pi:latest .
+
+# 2) Start container
+docker run -d --name turbo_pi \
+  --gpus all --ipc=host \
+  -v $(pwd):/workspace \
+  -v ~/.cache/openpi:/root/.cache/openpi \
+  -e MUJOCO_GL=egl \
+  -e MUJOCO_EGL_DEVICE_ID=0 \
+  -e PYOPENGL_PLATFORM=egl \
+  turbo_pi:latest sleep infinity
+
+# 3) Create non-interactive LIBERO config (avoids first-run prompt)
+mkdir -p .libero
+cat > .libero/config.yaml <<'EOF'
+benchmark_root: /workspace/third_party/libero/libero/libero
+bddl_files: /workspace/third_party/libero/libero/libero/bddl_files
+init_states: /workspace/third_party/libero/libero/libero/init_files
+datasets: /workspace/third_party/libero/libero/datasets
+assets: /workspace/third_party/libero/libero/libero/assets
+EOF
+```
+
+### Optimized pathway benchmark
+
+```bash
+# Quick sanity run
+docker exec turbo_pi bash -lc '
+  export LIBERO_CONFIG_PATH=/workspace/.libero
+  cd /workspace
+  python scripts/libero_eval_full_optimized.py --quick --denoising_steps 1
+'
+
+# 20 denoising steps
+docker exec turbo_pi bash -lc '
+  export LIBERO_CONFIG_PATH=/workspace/.libero
+  cd /workspace
+  python scripts/libero_eval_full_optimized.py --quick --denoising_steps 20
+'
+```
+
+### serve_policy.py pathway benchmark
+
+```bash
+# Through websocket server + client loop with LIBERO env, using 20 denoising steps
+docker exec turbo_pi bash -lc '
+  export LIBERO_CONFIG_PATH=/workspace/.libero
+  cd /workspace
+  python scripts/libero_eval_serve_policy.py --quick --denoising_steps 20
+'
+```
+
+Notes:
+- CUDA13 container can run the optimized benchmark path, but TRT-LLM plugins are CUDA12.x-only in this repo's current setup.
+- If you see a first-run LIBERO input prompt, your `LIBERO_CONFIG_PATH` was not set correctly.
+
 ## Python API
 
 ```python

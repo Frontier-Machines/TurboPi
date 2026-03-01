@@ -321,6 +321,7 @@ class FullOptimizedPolicy:
 
         # Initialize vision TRT flag
         self.use_vision_trt = False
+        self.use_denoise_cuda_graph = False
         self._setup_vision_trt()  # Fixed: now handles dtype conversion
         self._setup_kv_cache_trt()
         self._setup_denoise_cuda_graph()
@@ -443,25 +444,32 @@ class FullOptimizedPolicy:
 
     def _setup_denoise_cuda_graph(self):
         """Setup Denoising CUDA Graph."""
-        wrapper = DenoiseStepWrapper(self.model, prefix_len=self.prefix_len)
-        wrapper = wrapper.to(self.device)
-        wrapper.eval()
+        try:
+            wrapper = DenoiseStepWrapper(self.model, prefix_len=self.prefix_len)
+            wrapper = wrapper.to(self.device)
+            wrapper.eval()
 
-        self.denoise_graph = CUDAGraphDenoiseLoop(wrapper, num_steps=self.num_denoising_steps)
+            self.denoise_graph = CUDAGraphDenoiseLoop(wrapper, num_steps=self.num_denoising_steps)
 
-        # Capture graph with dummy KV cache
-        num_layers = 18
-        num_kv_heads = 1
-        head_dim = self.model.paligemma_with_expert.gemma_expert.model.layers[0].self_attn.head_dim
+            # Capture graph with dummy KV cache
+            num_layers = 18
+            num_kv_heads = 1
+            head_dim = self.model.paligemma_with_expert.gemma_expert.model.layers[0].self_attn.head_dim
 
-        dummy_keys = torch.randn(1, num_layers, num_kv_heads, self.prefix_len, head_dim,
-                                 device=self.device, dtype=torch.bfloat16)
-        dummy_values = torch.randn(1, num_layers, num_kv_heads, self.prefix_len, head_dim,
-                                   device=self.device, dtype=torch.bfloat16)
-        dummy_pad_masks = torch.ones(1, self.prefix_len, device=self.device, dtype=torch.bool)
+            dummy_keys = torch.randn(
+                1, num_layers, num_kv_heads, self.prefix_len, head_dim, device=self.device, dtype=torch.bfloat16
+            )
+            dummy_values = torch.randn(
+                1, num_layers, num_kv_heads, self.prefix_len, head_dim, device=self.device, dtype=torch.bfloat16
+            )
+            dummy_pad_masks = torch.ones(1, self.prefix_len, device=self.device, dtype=torch.bool)
 
-        self.denoise_graph.capture_graph(dummy_keys, dummy_values, dummy_pad_masks, self.device)
-        logger.info("Denoising CUDA Graph captured")
+            self.denoise_graph.capture_graph(dummy_keys, dummy_values, dummy_pad_masks, self.device)
+            self.use_denoise_cuda_graph = True
+            logger.info("Denoising CUDA Graph captured")
+        except Exception as e:
+            self.use_denoise_cuda_graph = False
+            logger.warning("Denoising CUDA Graph unavailable, falling back to eager denoise: %s", e)
 
     def _normalize_state(self, state: np.ndarray) -> np.ndarray:
         if self.norm_stats is None:
@@ -641,10 +649,11 @@ class FullOptimizedPolicy:
             keys = torch.stack([kv[0] for kv in kv_cache], dim=1)
             values = torch.stack([kv[1] for kv in kv_cache], dim=1)
 
-            # Update CUDA Graph static inputs
-            self.denoise_graph.static_inputs['prefix_keys'].copy_(keys)
-            self.denoise_graph.static_inputs['prefix_values'].copy_(values)
-            self.denoise_graph.static_inputs['prefix_pad_masks'].copy_(prefix_pad_masks)
+            if self.use_denoise_cuda_graph:
+                # Update CUDA Graph static inputs
+                self.denoise_graph.static_inputs['prefix_keys'].copy_(keys)
+                self.denoise_graph.static_inputs['prefix_values'].copy_(values)
+                self.denoise_graph.static_inputs['prefix_pad_masks'].copy_(prefix_pad_masks)
 
             torch.cuda.synchronize()
             kv_time = (time.perf_counter() - kv_start) * 1000
@@ -656,7 +665,17 @@ class FullOptimizedPolicy:
 
             x_t = torch.randn(1, self.action_horizon, self.action_dim,
                              device=self.device, dtype=torch.bfloat16)
-            actions = self.denoise_graph.infer(x_t)
+            if self.use_denoise_cuda_graph:
+                actions = self.denoise_graph.infer(x_t)
+            else:
+                actions = self.model.sample_actions_with_external_kv(
+                    self.device,
+                    state,
+                    kv_cache,
+                    prefix_pad_masks,
+                    noise=x_t,
+                    num_steps=self.num_denoising_steps,
+                )
 
             torch.cuda.synchronize()
             denoise_time = (time.perf_counter() - denoise_start) * 1000
