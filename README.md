@@ -64,6 +64,32 @@ python scripts/libero_eval_full_optimized.py --quick --denoising_steps 10 # 5.8 
 
 These commands run inside `openpi/` and use the optimized pathway and `serve_policy.py` pathway on the same machine.
 
+### One-shot 6-step benchmark (recommended)
+
+```bash
+cd openpi
+./scripts/run_libero_benchmarks_6steps.sh
+```
+
+What this script does automatically:
+- Ensures `third_party/libero` submodule is initialized.
+- Backfills LIBERO assets if missing.
+- Creates `.libero/config.yaml` with repo-local LIBERO paths.
+- Downloads checkpoint `liangsu9988/Turbo-Pi0.5-1.1.2` if missing.
+- Builds/starts the benchmark container if needed.
+- Runs both:
+  - `scripts/libero_eval_full_optimized.py --quick --denoising_steps 6`
+  - `scripts/libero_eval_serve_policy.py --quick --denoising_steps 6`
+- Writes logs to `openpi/benchmark_logs/<timestamp>/`.
+
+Environment overrides (optional):
+- `CONTAINER_NAME` (default: `turbo_pi`)
+- `IMAGE_NAME` (default: `turbo_pi:latest`)
+- `CHECKPOINT_DIR` (default: `~/.cache/openpi/checkpoints/pi05_libero`)
+- `CHECKPOINT_REPO` (default: `liangsu9988/Turbo-Pi0.5-1.1.2`)
+
+### Manual step-by-step (reference)
+
 ```bash
 # 1) Build CUDA13 benchmark image
 cd openpi
