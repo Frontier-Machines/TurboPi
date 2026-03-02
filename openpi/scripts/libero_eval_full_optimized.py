@@ -507,6 +507,44 @@ class FullOptimizedPolicy:
         """Preprocess observation."""
         from openpi.models_pytorch.pi0_pytorch import Observation
 
+        # Allow bypassing raw env-style preprocessing when caller provides fully transformed
+        # policy inputs (same schema as Policy._input_transform output).
+        if "image" in observation and "image_mask" in observation and "tokenized_prompt" in observation:
+            image_tensors = {}
+            for key in ("base_0_rgb", "left_wrist_0_rgb", "right_wrist_0_rgb"):
+                arr = np.asarray(observation["image"][key])
+                t = torch.from_numpy(arr)
+                if t.dtype == torch.uint8:
+                    t = t.to(torch.float32) / 255.0 * 2.0 - 1.0
+                elif t.dtype in (torch.float32, torch.float64):
+                    t = t.to(torch.float32)
+                if t.ndim == 3:
+                    t = t.permute(2, 0, 1).unsqueeze(0)
+                image_tensors[key] = t.to(self.device, dtype=torch.bfloat16)
+
+            image_masks = {}
+            for key in ("base_0_rgb", "left_wrist_0_rgb", "right_wrist_0_rgb"):
+                m = torch.tensor([bool(np.asarray(observation["image_mask"][key]))], dtype=torch.bool, device=self.device)
+                image_masks[key] = m
+
+            state_arr = np.asarray(observation["state"], dtype=np.float32)
+            state_tensor = torch.from_numpy(state_arr).unsqueeze(0).to(self.device, dtype=torch.bfloat16)
+
+            tokenized_prompt = torch.from_numpy(np.asarray(observation["tokenized_prompt"], dtype=np.int64))
+            tokenized_prompt = tokenized_prompt.unsqueeze(0).to(self.device, dtype=torch.long)
+            tokenized_prompt_mask = torch.from_numpy(np.asarray(observation["tokenized_prompt_mask"], dtype=np.bool_))
+            tokenized_prompt_mask = tokenized_prompt_mask.unsqueeze(0).to(self.device, dtype=torch.bool)
+
+            return Observation(
+                images=image_tensors,
+                image_masks=image_masks,
+                state=state_tensor,
+                tokenized_prompt=tokenized_prompt,
+                tokenized_prompt_mask=tokenized_prompt_mask,
+                token_ar_mask=None,
+                token_loss_mask=None,
+            )
+
         img = observation.get("observation/image")
         wrist_img = observation.get("observation/wrist_image")
         state = observation.get("observation/state")
@@ -571,7 +609,13 @@ class FullOptimizedPolicy:
             token_loss_mask=None,
         )
 
-    def infer(self, observation: Dict[str, Any], num_steps: int = None) -> Dict[str, np.ndarray]:
+    def infer(
+        self,
+        observation: Dict[str, Any],
+        num_steps: int = None,
+        noise: np.ndarray | torch.Tensor | None = None,
+        apply_output_transform: bool = True,
+    ) -> Dict[str, np.ndarray]:
         """Run optimized inference with per-component latency tracking."""
         torch.cuda.synchronize()
         start_time = time.perf_counter()
@@ -663,8 +707,16 @@ class FullOptimizedPolicy:
             torch.cuda.synchronize()
             denoise_start = time.perf_counter()
 
-            x_t = torch.randn(1, self.action_horizon, self.action_dim,
-                             device=self.device, dtype=torch.bfloat16)
+            if noise is None:
+                x_t = torch.randn(1, self.action_horizon, self.action_dim, device=self.device, dtype=torch.bfloat16)
+            else:
+                if isinstance(noise, np.ndarray):
+                    x_t = torch.from_numpy(noise)
+                else:
+                    x_t = noise
+                if x_t.ndim == 2:
+                    x_t = x_t.unsqueeze(0)
+                x_t = x_t.to(device=self.device, dtype=torch.bfloat16)
             if self.use_denoise_cuda_graph:
                 actions = self.denoise_graph.infer(x_t)
             else:
@@ -688,7 +740,8 @@ class FullOptimizedPolicy:
 
         # Post-process
         actions_np = actions.float().cpu().numpy()[0]
-        actions_np = self._unnormalize_actions(actions_np)
+        if apply_output_transform:
+            actions_np = self._unnormalize_actions(actions_np)
 
         return {"actions": actions_np}
 

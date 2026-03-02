@@ -145,6 +145,35 @@ docker exec turbo_pi bash -lc '
 '
 ```
 
+### Numerical comparison (opt vs serve, identical transforms)
+
+Use this to compare outputs when both pathways consume the exact same post-transform inputs, the exact same diffusion noise, and the same output transform handling.
+
+```bash
+docker exec turbo_pi bash -lc '
+  export LIBERO_CONFIG_PATH=/workspace/.libero
+  cd /workspace
+  python scripts/validate_optimized_vs_serve_policy.py \
+    --checkpoint_dir /root/.cache/openpi/checkpoints/pi05_libero \
+    --num_steps 6 \
+    --num_cases 1 \
+    --compare_space libero \
+    --rtol 1e-2 \
+    --atol 1e-2 \
+    --dump_dir /workspace/benchmark_logs/parity_dump_aligned_transformed_inputs_outputs
+'
+```
+
+Artifacts:
+- Per-case dump: `openpi/benchmark_logs/parity_dump_aligned_transformed_inputs_outputs/case_000.npz`
+- Summary: `openpi/benchmark_logs/parity_dump_aligned_transformed_inputs_outputs/summary.json`
+
+The validator internally:
+- pulls transformed inputs from the serve-policy transform pipeline,
+- feeds those exact transformed tensors to both pathways,
+- injects identical noise into both pathways,
+- bypasses pathway-specific output transforms and applies a shared comparison transform.
+
 Notes:
 - CUDA13 container can run the optimized benchmark path, but TRT-LLM plugins are CUDA12.x-only in this repo's current setup.
 - If you see a first-run LIBERO input prompt, your `LIBERO_CONFIG_PATH` was not set correctly.
