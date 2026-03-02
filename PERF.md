@@ -59,3 +59,47 @@
   - `4.89 ms` lower mean latency (`~8.1%` faster)
 - CUDA 13 optimized vs CUDA 13 serve-policy:
   - `84.90 ms` lower mean infer latency (`~2.53x` faster)
+
+## Benchmark Update (2026-03-02, commit `73d7ed7`)
+
+### CUDA 12.9 optimized (`scripts/libero_eval_full_optimized.py`, `turbo_pi:cuda129-2506-trtllm`)
+
+- Mean: `51.45 ms`
+- Std: `0.40 ms`
+- P50: `51.49 ms`
+- P95: `52.04 ms`
+- Throughput: `19.4 Hz`
+- Accuracy: `0/9`
+- Breakdown:
+  - Vision TRT: `6.18 ms`
+  - KV Cache TRT: `20.65 ms`
+  - Denoise CUDA: `19.54 ms`
+
+### CUDA 13 optimized (`scripts/libero_eval_full_optimized.py`, `turbo_pi:latest`)
+
+- Mean: `47.82 ms`
+- Std: `0.42 ms`
+- P50: `47.85 ms`
+- P95: `48.41 ms`
+- Throughput: `20.9 Hz`
+- Accuracy: `0/9`
+- Breakdown:
+  - Vision TRT: `5.66 ms`
+  - KV Cache TRT: `19.37 ms`
+  - Denoise CUDA: `18.02 ms`
+
+### CUDA 13 serve-policy (`scripts/libero_eval_serve_policy.py`, `turbo_pi:latest`)
+
+- Mean infer latency: `95.53 ms`
+- P50 infer latency: `95.01 ms`
+- P95 infer latency: `95.76 ms`
+- Throughput: `10.47 Hz`
+- Policy infer calls: `396`
+- Episodes: `9` (`0/9` success in quick benchmark)
+
+### Update Delta
+
+- CUDA 13 vs CUDA 12.9 at 6 denoising steps:
+  - `3.63 ms` lower mean latency (`~7.1%` faster)
+- CUDA 13 optimized vs CUDA 13 serve-policy:
+  - `47.71 ms` lower mean infer latency (`~2.00x` faster)
