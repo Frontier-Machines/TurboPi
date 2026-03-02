@@ -1,0 +1,109 @@
+# Dockerfile for LIBERO evaluation on Jetson Thor
+# Uses NVIDIA PyTorch container with sm_110 support
+#
+# IMPORTANT: The base image includes CUDA-enabled PyTorch. We must use --no-deps
+# when installing packages that have torch as a dependency (like lerobot) to
+# prevent them from overwriting the CUDA version with CPU-only PyTorch.
+
+FROM nvcr.io/nvidia/pytorch:25.01-py3
+
+# Install system dependencies for MuJoCo EGL rendering
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libegl1 \
+    libgl1 \
+    libgles2 \
+    libglew-dev \
+    libglfw3-dev \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for LIBERO environment
+# Note: Install packages that don't have torch dependency first
+# Use gymnasium==0.29.1 to match lerobot requirements
+RUN pip install --no-cache-dir \
+    "gymnasium==0.29.1" \
+    "gym==0.26.2" \
+    robosuite==1.4.1 \
+    mujoco \
+    glfw \
+    tyro \
+    h5py \
+    imageio \
+    imageio-ffmpeg \
+    bddl \
+    opencv-python-headless \
+    pynput \
+    easydict \
+    websockets \
+    einops \
+    safetensors \
+    gcsfs \
+    pycuda
+
+# Install lerobot with --no-deps to preserve CUDA PyTorch from base image
+# lerobot's runtime dependencies (torch, numpy, pillow, etc.) are already
+# provided by the base image and other installed packages
+RUN pip install --no-cache-dir --no-deps \
+    lerobot@git+https://github.com/huggingface/lerobot@0cf864870cf29f4738d3ade893e6fd13fbd7cdb5
+
+# Install lerobot's non-torch dependencies that may not be in base image
+# Note: rerun-sdk is intentionally excluded as it requires numpy>=2 which conflicts
+# with our numpy<2 constraint. rerun-sdk is only used for visualization, not evaluation.
+RUN pip install --no-cache-dir \
+    datasets \
+    huggingface_hub \
+    av \
+    cmake \
+    pyzmq \
+    pyserial \
+    deepdiff \
+    diffusers \
+    draccus==0.10.0 \
+    flask \
+    gdown \
+    jsonlines \
+    omegaconf \
+    pymunk \
+    wandb \
+    zarr
+
+# Install openpi dependencies (JAX, Flax, etc.)
+RUN pip install --no-cache-dir \
+    "jax[cuda12]==0.5.3" \
+    "flax==0.10.2" \
+    "augmax>=0.3.4" \
+    "dm-tree>=0.1.8" \
+    "equinox>=0.11.8" \
+    "flatbuffers>=24.3.25" \
+    "jaxtyping==0.2.36" \
+    "ml_collections==1.0.0" \
+    "numpy>=1.22.4,<2.0.0" \
+    "numpydantic>=1.6.6" \
+    "orbax-checkpoint==0.11.13" \
+    "pillow>=11.0.0" \
+    "sentencepiece>=0.2.0" \
+    "tqdm-loggable>=0.2" \
+    "typing-extensions>=4.12.2" \
+    "filelock>=3.16.1" \
+    "beartype==0.19.0" \
+    "treescope>=0.1.7" \
+    "transformers==4.53.2" \
+    "rich>=14.0.0" \
+    "polars>=1.30.0"
+
+WORKDIR /app
+
+# Copy transformers_replace models to patch transformers library
+# Only copy the models subdirectory to avoid overwriting __init__.py
+COPY src/openpi/models_pytorch/transformers_replace/models/ /usr/local/lib/python3.12/dist-packages/transformers/models/
+
+# Set environment variables for EGL rendering
+ENV MUJOCO_GL=egl
+ENV MUJOCO_EGL_DEVICE_ID=0
+ENV PYOPENGL_PLATFORM=egl
+
+# Default command
+CMD ["/bin/bash"]
