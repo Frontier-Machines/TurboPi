@@ -116,6 +116,33 @@ assets: /workspace/third_party/libero/libero/libero/assets
 EOF
 ```
 
+### CUDA 12.9 optimized pathway benchmark
+
+```bash
+# 1) Build CUDA12.9 benchmark image
+cd openpi
+docker build -f Dockerfile.libero_eval.cuda129_2506 -t turbo_pi:cuda129-2506-trtllm .
+
+# 2) Run optimized benchmark (quick mode, 6 denoising steps)
+docker run --rm --gpus all --ipc=host \
+  -v $(pwd):/workspace \
+  -v ~/.cache/openpi:/root/.cache/openpi \
+  -w /workspace \
+  turbo_pi:cuda129-2506-trtllm \
+  bash -lc '
+    mkdir -p /workspace/.libero
+    cat > /workspace/.libero/config.yaml <<'"'"'EOF'"'"'
+benchmark_root: /workspace/third_party/libero/libero/libero
+bddl_files: /workspace/third_party/libero/libero/libero/bddl_files
+init_states: /workspace/third_party/libero/libero/libero/init_files
+datasets: /workspace/third_party/libero/libero/datasets
+assets: /workspace/third_party/libero/libero/libero/assets
+EOF
+    export LIBERO_CONFIG_PATH=/workspace/.libero
+    python scripts/libero_eval_full_optimized.py --quick --denoising_steps 6
+  '
+```
+
 ### Optimized pathway benchmark
 
 ```bash
@@ -137,11 +164,11 @@ docker exec turbo_pi bash -lc '
 ### serve_policy.py pathway benchmark
 
 ```bash
-# Through websocket server + client loop with LIBERO env, using 20 denoising steps
+# Through websocket server + client loop with LIBERO env, using 6 denoising steps
 docker exec turbo_pi bash -lc '
   export LIBERO_CONFIG_PATH=/workspace/.libero
   cd /workspace
-  python scripts/libero_eval_serve_policy.py --quick --denoising_steps 20
+  python scripts/libero_eval_serve_policy.py --quick --denoising_steps 6
 '
 ```
 
@@ -175,8 +202,9 @@ The validator internally:
 - bypasses pathway-specific output transforms and applies a shared comparison transform.
 
 Notes:
-- CUDA13 container can run the optimized benchmark path, but TRT-LLM plugins are CUDA12.x-only in this repo's current setup.
+- CUDA13 container can run the optimized benchmark path; CUDA12.9 image (`Dockerfile.libero_eval.cuda129_2506`) is required for TRT-LLM plugin benchmarking.
 - If you see a first-run LIBERO input prompt, your `LIBERO_CONFIG_PATH` was not set correctly.
+- Recorded benchmark numbers are in [PERF.md](PERF.md).
 
 ## Python API
 

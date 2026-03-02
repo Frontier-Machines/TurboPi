@@ -53,53 +53,7 @@ NOTE: `GIT_LFS_SKIP_SMUDGE=1` is needed to pull LeRobot as a dependency.
 
 **Docker**: As an alternative to uv installation, we provide instructions for installing openpi using Docker. If you encounter issues with your system setup, consider using Docker to simplify installation. See [Docker Setup](docs/docker.md) for more details.
 
-## TurboPi CUDA 12.9 Benchmark Quickstart
-
-This section reproduces the optimized LIBERO benchmark numbers (TRT vision + TRT FP8 KV cache + CUDA graph denoise) on CUDA 12.9.
-
-1. Build the CUDA 12.9 benchmark image:
-
-```bash
-cd openpi
-docker build -f Dockerfile.libero_eval.cuda129_2506 -t turbo_pi:cuda129-2506-trtllm .
-```
-
-2. Ensure the LIBERO config exists and points at the in-repo paths:
-
-```bash
-mkdir -p .libero
-cat > .libero/config.yaml << 'EOF'
-benchmark_root: /workspace/third_party/libero/libero/libero
-bddl_files: /workspace/third_party/libero/libero/libero/bddl_files
-init_states: /workspace/third_party/libero/libero/libero/init_files
-datasets: /workspace/third_party/libero/libero/datasets
-assets: /workspace/third_party/libero/libero/libero/assets
-EOF
-```
-
-3. Run the optimized quick benchmark at 6 denoising steps:
-
-```bash
-docker run --rm --gpus all --ipc=host \
-  -e LIBERO_CONFIG_PATH=/workspace/.libero \
-  -v $(pwd):/workspace \
-  -v ~/.cache/openpi:/root/.cache/openpi \
-  -w /workspace \
-  turbo_pi:cuda129-2506-trtllm \
-  bash -lc "python scripts/libero_eval_full_optimized.py --quick --denoising_steps 6"
-```
-
-4. Read the summary block at the end:
-- `FULL OPTIMIZED PIPELINE EVALUATION`
-- `Latency (...)`
-- `Component Breakdown`
-
-Notes:
-- First run can take several minutes because TensorRT engines are built.
-- Repeated runs are faster to start and better for steady-state latency checks.
-- For recorded reference numbers on this machine, see [PERF.md](PERF.md).
-
-
+> TurboPi benchmark reproduction instructions (CUDA12.9/CUDA13 and serve-policy) moved to the top-level repo [README](../README.md#benchmark-reproduction-rtx-40905090). Performance numbers are in [../PERF.md](../PERF.md).
 
 
 ## Model Checkpoints

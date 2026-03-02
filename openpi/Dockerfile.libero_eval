@@ -73,6 +73,7 @@ RUN pip install --no-cache-dir \
 # Install openpi dependencies (JAX, Flax, etc.)
 RUN pip install --no-cache-dir \
     "jax[cuda12]==0.5.3" \
+    "chex==0.1.88" \
     "flax==0.10.2" \
     "augmax>=0.3.4" \
     "dm-tree>=0.1.8" \

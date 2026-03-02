@@ -28,6 +28,29 @@ from openpi_client import websocket_client_policy as ws_policy
 from libero.libero import benchmark, get_libero_path
 from libero.libero.envs import OffScreenRenderEnv
 
+SUBPROCESS_PY_PATHS = [
+    os.path.join(os.path.dirname(__file__), "..", "src"),
+    os.path.join(os.path.dirname(__file__), "..", "packages", "openpi-client", "src"),
+    os.path.join(os.path.dirname(__file__), "..", "third_party", "libero"),
+    "/workspace/src",
+    "/workspace/packages/openpi-client/src",
+    "/workspace/third_party/libero",
+]
+
+
+def build_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    existing = env.get("PYTHONPATH", "")
+    path_entries = []
+    seen = set()
+    for p in SUBPROCESS_PY_PATHS + existing.split(":"):
+        if not p or p in seen:
+            continue
+        seen.add(p)
+        path_entries.append(p)
+    env["PYTHONPATH"] = ":".join(path_entries)
+    return env
+
 
 def wait_for_port(host: str, port: int, timeout_s: int) -> bool:
     start = time.time()
@@ -86,9 +109,10 @@ def run_benchmark(args: argparse.Namespace) -> Dict[str, float]:
     server_log = "/tmp/serve_policy_benchmark.log"
     log_f = open(server_log, "w")
     proc = subprocess.Popen(
-        ["python", "-u", "-c", make_server_code(args.policy_config, args.checkpoint_dir, args.denoising_steps, args.host, args.port)],
+        [sys.executable, "-u", "-c", make_server_code(args.policy_config, args.checkpoint_dir, args.denoising_steps, args.host, args.port)],
         stdout=log_f,
         stderr=log_f,
+        env=build_subprocess_env(),
     )
 
     try:
